@@ -1,0 +1,18 @@
+[Unit]
+Description=cognee team memory API (multi-tenant, auth enforced, tiered)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Sample unit — install_server.sh writes the real one with your --root path.
+WorkingDirectory=%h/cognee-team
+ExecStart=%h/cognee-team/run_api.sh
+Restart=on-failure
+RestartSec=5
+# Hardening: only what the server needs.
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=default.target

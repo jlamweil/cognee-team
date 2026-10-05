@@ -1,0 +1,13 @@
+{
+  "_comment": "Copy to roster.json (gitignored, chmod 600) and edit. Emails are login IDs, not mailboxes — but must pass email validation ('.local' is rejected). member_agents: per-member OWN agent providers (one per provider, revocable per key) — each gets the public tier plus THAT member's private tier, nothing else.",
+  "domain": "example.com",
+  "admin_email": "admin@example.com",
+  "member_emails": [
+    "alice@example.com"
+  ],
+  "member_agents": {
+    "alice@example.com": [
+      "alice-agent@agents.example.com"
+    ]
+  }
+}
