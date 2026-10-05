@@ -11,3 +11,5 @@ __pycache__/
 .vscode/
 .idea/
 .DS_Store
+# the real tier->principal mapping (host-local secret — never commit)
+tier_keys.local.json

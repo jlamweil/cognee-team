@@ -1,0 +1,6 @@
+{
+  "_comment": "Tier -> principal mapping. Fill in the real principal email for each privacy tier, then copy this file to tier_keys.local.json (keep tier_keys.local.json gitignored — never commit real mappings). The committed template keeps <fill@tier> placeholders only. Check with: python3 check_tier_keys.py --map tier_keys.local.json",
+  "P0-public": "<fill@tier>",
+  "P1-contract": "<fill@tier>",
+  "P2-local": "<fill@tier>"
+}
