@@ -143,6 +143,10 @@ seconds. Extraction runs through cognee's LLM config only; ACLs are LLM-free.
   ~400% CPU holding the 5.5 GiB indefinitely. Remedy: `ollama stop
   qwen2.5:7b-instruct` (or `ollama ps` to spot the zombie), free RAM, retry
   cognify. Check `free -h` before cognify; close memory-hungry apps first.
+  Permanent fix (operator, needs sudo): `systemctl edit ollama` →
+  `[Service]` / `Environment=OLLAMA_NUM_PARALLEL=1` / `OLLAMA_MAX_LOADED_MODELS=1`,
+  then `systemctl restart ollama` — cuts KV-cache RAM ~4x and prevents the
+  stuck-runner state at the source.
 - Data lives in `cognee-team/data` via `SYSTEM_ROOT_DIRECTORY`; the default is
   inside site-packages and dies with the venv.
 
