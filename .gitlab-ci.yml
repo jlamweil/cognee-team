@@ -1,0 +1,40 @@
+# CI: prove the ACL tiering on every push — no LLM, no GPU, no secrets.
+#
+# The whole verification story (bootstrap.py -> live API -> verify.py) is
+# LLM-free: identities, datasets, role/direct grants, and the 21 boundary
+# assertions run against a real server started right here. Chunk search on
+# not-yet-cognified datasets returns 404 (granted-but-empty) which verify.py
+# accepts; 403 remains the only denial signal. See README "Verification story".
+stages:
+  - test
+
+verify-acl:
+  stage: test
+  image: python:3.11
+  cache:
+    key: cognee-venv-v1
+    paths:
+      - .venv/
+      - .cache/
+  before_script:
+    # ephemeral roster/env from templates — CI runs against throwaway state
+    - cp roster.template.json roster.json
+    - sed -e "s|__DATA_ROOT__|$CI_PROJECT_DIR|g" -e "s|__GENERATE__|ci-$(openssl rand -hex 24)|g" .env.template > .env
+    - mkdir -p data/databases data/logs data/repos credentials
+    - export PIP_CACHE_DIR="$CI_PROJECT_DIR/.cache/pip"
+    - pip install --quiet uv
+    - uv venv .venv --python 3.11
+    - uv pip install --python .venv/bin/python "cognee[api]" fastembed
+  script:
+    - .venv/bin/python bootstrap.py
+    - .venv/bin/python -m uvicorn cognee.api.client:app --host 127.0.0.1 --port 8000 > server.log 2>&1 &
+    - timeout 90 bash -c 'until curl -sf -o /dev/null http://127.0.0.1:8000/docs; do sleep 2; done'
+    - .venv/bin/python verify.py
+  after_script:
+    - pkill -f uvicorn || true
+    - rm -f .env roster.json   # never let generated files linger in the workspace
+  artifacts:
+    when: on_failure
+    paths:
+      - server.log
+    expire_in: 1 week
