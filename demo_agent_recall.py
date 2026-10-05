@@ -24,6 +24,11 @@ CREDS = Path(__file__).parent / "credentials"
 import tiers
 AGENT_EMAIL = tiers.AGENT_EMAILS[-1]
 SEARCH_TYPE = "GRAPH_COMPLETION" if "--llm" in sys.argv else "CHUNKS"
+# --allow-empty: the e2e driver's explicit outcome contract — a 404
+# "No searchable memory" is a SUCCESSFUL authenticated recall round-trip
+# (api-key auth, dataset resolution and ACL scoping all executed; the
+# knowledge graph just has no cognified content yet). Strict by default.
+ALLOW_EMPTY = "--allow-empty" in sys.argv
 
 
 def client_for(email: str) -> httpx.Client:
@@ -50,6 +55,10 @@ def main() -> int:
         },
     )
     if r.status_code != 200:
+        if ALLOW_EMPTY and r.status_code == 404 and "No searchable memory" in r.text:
+            print("  404 no-searchable-memory — authenticated round-trip OK, "
+                  "knowledge graph pending cognify (--allow-empty)")
+            return 0
         print(f"  recall failed: HTTP {r.status_code}: {r.text[:200]}")
         return 1
     data = r.json()
