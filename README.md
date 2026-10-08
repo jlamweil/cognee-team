@@ -5,6 +5,23 @@ a provably-enforced partitioning: one tenant, tiered datasets, and per-provider
 principals for AI agent providers that have **no zero-data-retention (no-ZDR)**
 guarantees.
 
+## What this is, and why
+
+cognee-team is a self-hosted memory backend shared by a team of humans and a
+team of AI agents, with access strictly tiered so that an AI provider that
+*retains* the data it sees (no zero-data-retention / no-ZDR) can never be fed
+material it should not keep.
+
+One-sentence pitch: your agents get read/write on the **public** tier and on
+their **own owner's private** tier, and a hard 403 everywhere else — enforced by
+the database, not by a prompt. If a provider logs or trains on what it is given,
+the worst it can retain is material its owner already owns.
+
+Who it's for: small teams that want one shared, queryable memory for people and
+agents, where some agents run through third-party providers you do not fully
+trust with your data. If every one of your agents is zero-data-retention, plain
+[cognee](https://github.com/topoteretes/cognee) is enough and you do not need this.
+
 ## Security model (single source of truth: `tiers.py`)
 
 | tier | dataset | members (humans) | agent providers (per-member) |
@@ -42,7 +59,7 @@ cognee-team/
   .env                 posture, storage, LLM/embedding config (gitignored)
   tiers.py             THE matrix: principals, roles, datasets, grants
   bootstrap.py         idempotent provisioning (LLM-free; run server-stopped)
-  verify.py            19 hard assertions against the live API
+  verify.py            per-principal hard assertions against the live API
   demo_agent_recall.py E2E: agent pulls public chunk, denied on team
   cognify_seed.py      one-time graph build for seeded datasets
   run_api.sh           server launcher (systemd calls this)
@@ -156,3 +173,7 @@ seconds. Extraction runs through cognee's LLM config only; ACLs are LLM-free.
 visibility (datasets list), read (CHUNKS search), write (add), JWT login, and
 the default-user posture. `demo_agent_recall.py` is the human-readable E2E.
 Run both after any change to tiers, grants, or cognee upgrades. Exit 0 = ship.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

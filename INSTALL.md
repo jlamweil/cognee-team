@@ -33,7 +33,7 @@ cd cognee-team
 Does: uv → code sync → venv + `cognee[api]` + fastembed → `.env` from template
 (generated JWT secrets) → Ollama model pull → `bootstrap.py` (all users, roles,
 tier datasets, ACL grants, API keys) → systemd unit install+start → `verify.py`
-(19 checks). Exit 0 = enforced and green.
+(the full per-principal check suite). Exit 0 = enforced and green.
 
 Afterwards: edit `roster.json` (`member_emails` / `member_agents`), then
 `systemctl --user stop cognee-team-api && .venv/bin/python bootstrap.py &&
