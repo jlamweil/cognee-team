@@ -1,0 +1,51 @@
+name: verify-acl
+
+# Proves the ACL tiering on every push — no LLM, no GPU, no secrets.
+# Ephemeral roster + env are generated from the committed templates
+# (placeholder principals + randomly-generated JWT secrets), so nothing
+# sensitive or personal ever enters the workspace. See README "Verification story".
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  verify-acl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Ephemeral roster/env from templates (throwaway state, no secrets)
+        run: |
+          cp roster.template.json roster.json
+          sed -e "s|__DATA_ROOT__|$GITHUB_WORKSPACE|g" \
+              -e "s|__GENERATE__|ci-$(openssl rand -hex 24)|g" .env.template > .env
+          mkdir -p data/databases data/logs data/repos credentials
+
+      - name: Install cognee + deps (uv)
+        run: |
+          pip install --quiet uv
+          uv venv .venv --python 3.11
+          uv pip install --python .venv/bin/python "cognee[api]" fastembed
+
+      - name: Bootstrap, start server, run verify.py (per-principal checks, LLM-free)
+        run: |
+          .venv/bin/python bootstrap.py
+          .venv/bin/python -m uvicorn cognee.api.client:app --host 127.0.0.1 --port 8000 > server.log 2>&1 &
+          timeout 90 bash -c 'until curl -sf -o /dev/null http://127.0.0.1:8000/docs; do sleep 2; done'
+          .venv/bin/python verify.py
+
+      - name: Stop server (always)
+        if: always()
+        run: pkill -f uvicorn || true
+
+      - name: Upload server.log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: server-log
+          path: server.log
