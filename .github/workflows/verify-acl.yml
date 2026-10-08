@@ -1,9 +1,17 @@
 name: verify-acl
 
-# Proves the ACL tiering on every push — no LLM, no GPU, no secrets.
-# Ephemeral roster + env are generated from the committed templates
-# (placeholder principals + randomly-generated JWT secrets), so nothing
-# sensitive or personal ever enters the workspace. See README "Verification story".
+# Proves the ACL tiering on every push - no LLM, no GPU, no secrets.
+#
+# Runs inside a python:3.11 container, NOT the bare ubuntu-latest runner,
+# on purpose: the hosted prebuilt CPython on ubuntu-latest segfaults in the
+# stdlib sqlite3/asyncio path during bootstrap (a native/ABI issue that does
+# NOT reproduce with the identical pinned packages on a self-consistent base
+# image). The container provides a CPython built against its own system
+# libraries. See README "Verification story".
+#
+# Ephemeral roster + .env are generated from the committed templates
+# (placeholder principals + randomly generated JWT secrets), so nothing
+# sensitive ever enters the workspace.
 
 on:
   push:
@@ -12,40 +20,45 @@ on:
 jobs:
   verify-acl:
     runs-on: ubuntu-latest
+    container: python:3.11
+    env:
+      PYTHONFAULTHANDLER: "1"
     steps:
-      - uses: actions/checkout@v4
+      - name: Ensure git + TLS certs (container has no Node for actions/checkout)
+        run: apt-get update && apt-get install -y -q git ca-certificates
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+      - name: Checkout
+        run: |
+          git config --global --add safe.directory /workspace
+          git clone --depth 1 https://github.com/jlamweil/cognee-team.git /workspace
+          cd /workspace
+          git fetch --depth 1 origin "$GITHUB_SHA"
+          git checkout "$GITHUB_SHA"
 
       - name: Ephemeral roster/env from templates (throwaway state, no secrets)
+        working-directory: /workspace
         run: |
           cp roster.template.json roster.json
-          sed -e "s|__DATA_ROOT__|$GITHUB_WORKSPACE|g" \
-              -e "s|__GENERATE__|ci-$(openssl rand -hex 24)|g" .env.template > .env
+          GEN=$(python -c "import secrets; print(secrets.token_hex(24))")
+          sed -e "s|__DATA_ROOT__|/workspace|g" -e "s|__GENERATE__|ci-$GEN|g" .env.template > .env
           mkdir -p data/databases data/logs data/repos credentials
 
-      - name: Install cognee + deps (uv)
+      - name: Install proven stack
+        working-directory: /workspace
         run: |
-          pip install --quiet uv
-          uv venv .venv --python 3.11
-          uv pip install --python .venv/bin/python "cognee[api]" fastembed
+          pip install --quiet \
+            "cognee[api]==1.6.2" "fastembed==0.8.0" "onnxruntime==1.23.2" \
+            "lancedb==0.39.0" "pylance==0.36.0" "pyarrow==25.0.1" "aiosqlite==0.22.1"
 
       - name: Bootstrap, start server, run verify.py (per-principal checks, LLM-free)
+        working-directory: /workspace
         run: |
-          .venv/bin/python bootstrap.py
-          .venv/bin/python -m uvicorn cognee.api.client:app --host 127.0.0.1 --port 8000 > server.log 2>&1 &
-          timeout 90 bash -c 'until curl -sf -o /dev/null http://127.0.0.1:8000/docs; do sleep 2; done'
-          .venv/bin/python verify.py
+          python bootstrap.py
+          python -m uvicorn cognee.api.client:app --host 127.0.0.1 --port 8000 > server.log 2>&1 &
+          timeout 90 bash -c 'until python -c "import urllib.request as u,sys; u.urlopen(sys.argv[1])" "http://127.0.0.1:8000/docs" 2>/dev/null; do sleep 2; done'
+          python verify.py
 
-      - name: Stop server (always)
-        if: always()
-        run: pkill -f uvicorn || true
-
-      - name: Upload server.log on failure
+      - name: Show server.log on failure
         if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: server-log
-          path: server.log
+        working-directory: /workspace
+        run: cat server.log || true
