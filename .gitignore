@@ -16,3 +16,6 @@ tier_keys.local.json
 
 # env backups / rotated copies — never commit
 .env.*
+
+# never commit secret/personal runtime state (public-GitHub safety)
+server.log
