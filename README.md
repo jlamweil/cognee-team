@@ -166,6 +166,14 @@ seconds. Extraction runs through cognee's LLM config only; ACLs are LLM-free.
   stuck-runner state at the source.
 - Data lives in `cognee-team/data` via `SYSTEM_ROOT_DIRECTORY`; the default is
   inside site-packages and dies with the venv.
+- **Data-root drift (documented-accepted, 2026-10-09)**: the repo moved to
+  `~/1/cognee-team/` but `.env` still points `SYSTEM_ROOT_DIRECTORY` at the
+  pre-move path `/home/jlam/cognee-team/data`, which is where the live
+  datasets actually live. The service is verified green against that path
+  (verify.py exit 0, all 4 datasets listed via API; `data/databases` under the
+  old path receives live writes). The repo-local `data/` is stale pre-move
+  residue — do not use it, and do not repoint `.env` without first migrating
+  the live data directory (rsync/cp -a, integrity check, restart, re-verify).
 
 ## Verification story
 
