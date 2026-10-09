@@ -5,6 +5,8 @@ a provably-enforced partitioning: one tenant, tiered datasets, and per-provider
 principals for AI agent providers that have **no zero-data-retention (no-ZDR)**
 guarantees.
 
+> Ops: live-service verification battery, tunnel/data-root gotchas and recovery — `../RUNBOOK.md` (workspace root, last verified 2026-10-09).
+
 ## What this is, and why
 
 cognee-team is a self-hosted memory backend shared by a team of humans and a
