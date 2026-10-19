@@ -20,3 +20,6 @@ tier_keys.local.json
 
 # never commit secret/personal runtime state (public-GitHub safety)
 server.log
+
+# local zft gate audit artifacts (created by the dispatch/lint hooks; not repo content)
+.zft/
