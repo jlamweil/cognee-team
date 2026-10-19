@@ -30,7 +30,7 @@ jobs:
       - name: Checkout
         run: |
           git config --global --add safe.directory /workspace
-          git clone --depth 1 https://github.com/jlamweil/cognee-team.git /workspace
+          git clone --depth 1 "https://github.com/$GITHUB_REPOSITORY.git" /workspace
           cd /workspace
           git fetch --depth 1 origin "$GITHUB_SHA"
           git checkout "$GITHUB_SHA"

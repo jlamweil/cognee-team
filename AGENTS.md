@@ -8,7 +8,7 @@ Everything bootstrap grants + verify asserts is defined in `tiers.py` + `roster.
 ## Build / test / run
 
 ```bash
-cd ~/1/cognee-team
+cd cognee-team
 .venv/bin/python verify.py            # THE proof: live ACL matrix vs :8000 (19 checks, T4)
 .venv/bin/python bootstrap.py         # idempotent, offline, LLM-free; server STOPPED;
                                       #   reuses existing "bootstrap" keys; --reset-keys re-mints
@@ -41,16 +41,11 @@ cd ~/1/cognee-team
 - `verify.py` is the negative-space proof: agents must NOT see team or other members'
   private tiers; the default superuser must NOT log in.
 
-## Current state (2026-10-11, proof in `~/1/proof/cognee/`)
+## Current state
 
-- Core ACL job **VERIFIED-LIVE at T4**: `verify.py` → ALL CHECKS PASSED (live vs :8000).
-- **D1 (stale client key) RESOLVED**: `cogctl me`/`list` now 200 (client re-pointed at the
-  live `credentials/jlam@unistra.fr.json` key via `install_client.sh`). See
-  `proof1b_client_repoint.txt`.
-- **D2 (data-root drift) — documented-accepted, NOT a functional defect.** `.env`
-  `SYSTEM_ROOT_DIRECTORY=/home/jlam/cognee-team/data` (pre-move path); repo is at
-  `~/1/cognee-team`. Service works (data lands at the old path). Owner documented-accepted
-  it in commit `fca11ae`. Optional safe consolidation (owner sign-off; stops the live,
-  actively-written service): stop service → `cp -a ~/cognee-team/data/* ~/1/cognee-team/
-  data/` → repoint `SYSTEM_ROOT_DIRECTORY`/`COGNEE_LOGS_DIR`/`COGNEE_REPOS_DIR` in `.env`
-  to `~/1/cognee-team/data` → start → `verify.py` 19/19.
+- Verification is `.venv/bin/python verify.py` — the live ACL battery against
+  `:8000` (per-principal hard assertions); last run green (all checks passed).
+- The data root is the repo's own (gitignored) `data/` dir, set via
+  `SYSTEM_ROOT_DIRECTORY` in `.env` (with `COGNEE_LOGS_DIR`/`COGNEE_REPOS_DIR`);
+  an older data-root drift to a data dir outside the repo was resolved 2026-10-12
+  (migrated into `data/` and re-verified).

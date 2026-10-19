@@ -75,7 +75,7 @@ fi
 
 # 6) bootstrap + systemd ---------------------------------------------------
 say "6/7 bootstrap (server stopped)"
-SYSTEMD_UNIT=/home/$(id -un)/.config/systemd/user/cognee-team-api.service
+SYSTEMD_UNIT=$HOME/.config/systemd/user/cognee-team-api.service
 if systemctl --user is-active --quiet cognee-team-api.service 2>/dev/null; then
   systemctl --user stop cognee-team-api.service
 fi

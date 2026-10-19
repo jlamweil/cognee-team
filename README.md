@@ -5,7 +5,7 @@ a provably-enforced partitioning: one tenant, tiered datasets, and per-provider
 principals for AI agent providers that have **no zero-data-retention (no-ZDR)**
 guarantees.
 
-> Ops: live-service verification battery, tunnel/data-root gotchas and recovery — `../RUNBOOK.md` (workspace root, last verified 2026-10-09).
+> Ops/verification: `verify.py` against the live API — data-root and tunnel gotchas are in "Pitfalls already paid for" below.
 
 ## What this is, and why
 
@@ -166,16 +166,15 @@ seconds. Extraction runs through cognee's LLM config only; ACLs are LLM-free.
   `[Service]` / `Environment=OLLAMA_NUM_PARALLEL=1` / `OLLAMA_MAX_LOADED_MODELS=1`,
   then `systemctl restart ollama` — cuts KV-cache RAM ~4x and prevents the
   stuck-runner state at the source.
-- Data lives in `cognee-team/data` via `SYSTEM_ROOT_DIRECTORY`; the default is
-  inside site-packages and dies with the venv.
-- **Data-root drift (documented-accepted, 2026-10-09)**: the repo moved to
-  `~/1/cognee-team/` but `.env` still points `SYSTEM_ROOT_DIRECTORY` at the
-  pre-move path `/home/jlam/cognee-team/data`, which is where the live
-  datasets actually live. The service is verified green against that path
-  (verify.py exit 0, all 4 datasets listed via API; `data/databases` under the
-  old path receives live writes). The repo-local `data/` is stale pre-move
-  residue — do not use it, and do not repoint `.env` without first migrating
-  the live data directory (rsync/cp -a, integrity check, restart, re-verify).
+- Data lives in `./data` (the repo's own dir) via `SYSTEM_ROOT_DIRECTORY`; the
+  default location is inside site-packages and dies with the venv.
+- **Data-root drift (consolidated, 2026-10-12)**: the data root was at one point
+  an older data dir *outside* the repo, and `.env` still pointed
+  `SYSTEM_ROOT_DIRECTORY` at that older path (where the live datasets actually
+  lived; the service was verified green against it). It is now consolidated at
+  the repo's own `data/` dir. Do not repoint `.env` at a different dir without
+  first migrating the live data directory (rsync/cp -a, integrity check,
+  restart, re-verify).
 
 ## Verification story
 
