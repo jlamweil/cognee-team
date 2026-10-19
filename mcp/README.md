@@ -15,18 +15,29 @@ datasets return 403 for every call — verified by `../verify.py`.
 
 ## Stdio MCP client config (agents running on this box)
 
-Run the official `cognee-mcp` package with the provider's identity via env:
+Run the official `cognee-mcp` package with the provider's identity. The
+client-mode env contract (exact) and the pinned bridge launch:
+
+```bash
+COGNEE_BASE_URL=http://127.0.0.1:8000        # NO /api/v1 suffix (client appends paths)
+COGNEE_API_AUTH_SCHEME=x-api-key              # bare Bearer → 401
+COGNEE_API_KEY=<per-principal agent key>      # never member/admin keys
+```
+
+Bridge launch: `uvx cognee-mcp@0.5.7` (pinned — do not float the version).
+
+Client config shape (JSON, e.g. for a pi-style `mcpServers` block):
 
 ```json
 {
   "mcpServers": {
     "team-memory": {
       "command": "uvx",
-      "args": ["cognee-mcp"],
+      "args": ["cognee-mcp@0.5.7"],
       "env": {
-        "TRANSPORT_MODE": "stdio",
-        "COGNEE_SERVICE_URL": "http://127.0.0.1:8000/api/v1",
-        "COGNEE_API_KEY": "<provider's api key from credentials/<email>.json>"
+        "COGNEE_BASE_URL": "http://127.0.0.1:8000",
+        "COGNEE_API_AUTH_SCHEME": "x-api-key",
+        "COGNEE_API_KEY": "<per-principal agent key>"
       }
     }
   }
@@ -36,6 +47,23 @@ Run the official `cognee-mcp` package with the provider's identity via env:
 The MCP server proxies to the team API with that key, so every tool call is
 authenticated AND tier-scoped as the provider principal — identical to what
 raw HTTP callers get.
+
+### Warnings
+
+- COGNEE_SERVICE_URL is the variable for the serve() path (launching your own
+  in-process server). It is the WRONG variable for talking to an external
+  running service — client mode is driven by the COGNEE_BASE_URL contract
+  above, and that base URL must not carry a /api/v1 suffix (the client
+  appends API paths itself, so a suffixed base doubles them to
+  /api/v1/api/v1/... and every call 404s).
+- The x-api-key auth scheme is required: with the default bare Bearer scheme
+  every call returns 401.
+- Shared-tier dataset recall BY NAME through the bridge returns the
+  documented `DatasetNotFoundError` 404 (expected, not a bug): the client
+  sends dataset names only, and the server resolves names among the
+  caller's OWN datasets only. Use raw HTTP with `dataset_ids` (UUIDs) for
+  shared tiers; per-agent auto-scoped memory (remember → recall by name on
+  the agent's own dataset) works through the bridge.
 
 ## HTTP clients (non-MCP)
 
