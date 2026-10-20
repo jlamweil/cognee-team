@@ -34,14 +34,18 @@ trust with your data. If every one of your agents is zero-data-retention, plain
 | public | `public` | read + write | **read + write** (all) | **read + write** (all) |
 | team | `team` | read + write | **nothing** (403 everywhere) | **read + write** |
 | private | `private/<member>` | owner full | **owner's OWN agents: read + write**; every other agent: nothing (403) | **owner's OWN safe agents: read + write**; every other: nothing (403) |
+| private-safe | `private-safe/<member>` | owner full | **nothing** (403 everywhere) | **owner's OWN safe agents: read + write**; every other: nothing (403) |
 
 Roster (`roster.json`) maps each member to their own providers via
 `member_agents` (unsafe, no-ZDR) and `member_safe_agents` (safe, ZDR). A
 person's own AI can work their private projects; the tier stays invisible to
 every other member, agent, and the admin. Agents of member M are created with
 `parent_user_id = M` — anything an agent ingests into its own scratch datasets
-is inherited downward by M only. Safe providers get the same partitioning plus
-read+write on the `team` tier.
+is inherited downward by M only. Each member has **two** private tiers:
+`private/<member>` (unsafe-allowed — both agent kinds get rw here) and
+`private-safe/<member>` (safe-only — only ZDR providers reach it). Safe
+providers get the same partitioning as unsafe ones, plus `team` and the
+owner's `private-safe` tier.
 
 - **Isolation is enforced by cognee, not by convention.** `ENABLE_BACKEND_ACCESS_CONTROL=true`
   + `REQUIRE_AUTHENTICATION=true` are pinned in `.env`; every dataset carries a
@@ -116,9 +120,10 @@ Identical flow, but register the provider in the member's `member_safe_agents`
 list instead of `member_agents`. One principal **per provider**, never shared —
 the key is the revocation boundary. The provider is created with parent = the
 owning member and gets: `public` (via the `safe-provider` role) **plus the
-owner's `private/<owner>` (direct grants) plus `team` (via the role)** —
-nothing else. Everything else is identical to the unsafe path; give it its
-`credentials/<email>.json` (`X-Api-Key`) and point it at `mcp/README.md`.
+owner's `private/<owner>` and `private-safe/<owner>` (direct grants) plus
+`team` (via the role)** — nothing else. Everything else is identical to the
+unsafe path; give it its `credentials/<email>.json` (`X-Api-Key`) and point it
+at `mcp/README.md`.
 
 ## Revoke a provider (or its write access)
 

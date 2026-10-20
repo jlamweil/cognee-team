@@ -5,7 +5,8 @@ Each provider gets its **own** principal (user + API key in
 `roster.json` — unsafe (no-ZDR) providers under `member_agents` (role
 `agent-provider`), safe (ZDR) providers under `member_safe_agents` (role
 `safe-provider`). Safe providers connect **identically** but may additionally
-reach the `team` tier. Never share one key between providers — the key
+reach the `team` tier and the owner's safe-only `private-safe` tier. Never share
+one key between providers — the key
 IS the security boundary, so per-provider keys are what makes per-provider
 revocation possible.
 
@@ -14,10 +15,12 @@ revocation possible.
 Exactly what `tiers.py` grants its principal: read + write on `public` (via
 the `agent-provider` role for unsafe providers, the `safe-provider` role for
 safe ones) **plus read + write on its owner's `private/<owner>`** (direct
-grants). For **unsafe** providers, `team` and every OTHER member's private
-datasets return 403 for every call. For **safe** (ZDR) providers, `team` is
-readable and writable (via the `safe-provider` role) and only the OTHER
-members' private datasets return 403 — verified by `../verify.py`.
+grants); safe providers ALSO get read + write on the owner's safe-only
+`private-safe/<owner>` (direct grant). For **unsafe** providers, `team`, the
+owner's `private-safe`, and every OTHER member's private / private-safe datasets
+return 403 for every call. For **safe** (ZDR) providers, `team` and the owner's
+`private-safe` are readable and writable, and only the OTHER members' private /
+private-safe datasets return 403 — verified by `../verify.py`.
 
 ## Stdio MCP client config (agents running on this box)
 

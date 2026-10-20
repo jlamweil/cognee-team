@@ -83,9 +83,11 @@ One key per provider — never shared. Full details: `mcp/README.md`.
 | `public` | read+write | read+write | read+write | read+write |
 | `team` | read+write | 403 everything | read+write | 403 everything |
 | `private/<member>` | owner only | **owner's agents: rw** | **owner's safe agents: rw** | 403 everything |
+| `private-safe/<member>` | owner only | 403 everything | **owner's safe agents: rw** | 403 everything |
 
 Each member maps their own providers in `roster.json` → `member_agents` (unsafe)
-and `member_safe_agents` (safe/ZDR — same partitioning plus the `team` tier).
+and `member_safe_agents` (safe/ZDR — same partitioning plus the `team` tier and
+the owner's safe-only `private-safe/<member>` tier).
 Enforced server-side by cognee ACLs (`ENABLE_BACKEND_ACCESS_CONTROL=true`,
 `REQUIRE_AUTHENTICATION=true` — pinned in `.env`). An agent can only ever pull
 `public` + its owner's private tier into its (retained) context — that is the

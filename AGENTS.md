@@ -2,8 +2,9 @@
 
 Multi-tenant memory API built on `cognee`. Auth is **always enforced**, tenant
 isolation always on; the privacy contract is a **tiered ACL** (public / team /
-private-per-member) with unsafe AI agents partitioned with their owning member,
-and safe (ZDR) providers (the `safe-provider` role) additionally reaching `team`.
+private-per-member, plus a safe-only `private-safe` split) — unsafe AI agents
+are partitioned with their owning member, and safe (ZDR) providers (the
+`safe-provider` role) additionally reach `team` and the owner's `private-safe`.
 Everything bootstrap grants + verify asserts is defined in `tiers.py` + `roster.json`.
 
 ## Build / test / run
@@ -41,11 +42,12 @@ cd cognee-team
   emails (from `roster.json`). Change the matrix there, re-run `bootstrap.py`, re-run
   `verify.py`.
 - ACL grants go to **ROLES** (`member`, `agent-provider`, `safe-provider`), never the
-  tenant principal (a tenant grant would leak to agent members). Per-agent and
-  per-safe-provider private grants are direct, on the owner's dataset only.
-- `verify.py` is the negative-space proof: unsafe agents must NOT see team or other
-  members' private tiers (safe agents DO see `team`); the default superuser must NOT
-  log in.
+  tenant principal (a tenant grant would leak to agent members). Per-agent private
+  grants are direct on the owner's `private/<owner>`; per-safe-provider grants also
+  cover the owner's safe-only `private-safe/<owner>` (unsafe agents get nothing on it).
+- `verify.py` is the negative-space proof: unsafe agents must NOT see team, other
+  members' private tiers, or the owner's `private-safe` (safe agents DO see `team`
+  + both private tiers); the default superuser must NOT log in.
 
 ## Current state
 

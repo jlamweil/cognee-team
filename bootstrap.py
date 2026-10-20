@@ -9,17 +9,19 @@ Creates (if missing), then prints a summary:
   admin@team.local (superuser, tenant owner)
   tenant "team"
   roles  member / agent-provider / safe-provider
-  members  (MEMBER_EMAILS)  + their private/<email> dataset
+  members  (MEMBER_EMAILS)  + their private/<email> + private-safe/<email> datasets
   member agents  (member_agents: each member's OWN unsafe no-ZDR providers,
                   parent = the owning member)
   member safe agents  (member_safe_agents: each member's OWN safe/ZDR providers,
                       parent = the owning member; same partitioning + the team tier)
-  datasets public (tier 1) / team (tier 2) / private/<member> (tier 3)
+  datasets public (tier 1) / team (tier 2) / private/<member> + private-safe/<member> (tier 3)
   ACL grants exactly as tiers.ROLE_MATRIX, granted to ROLES — never to the
   tenant principal (a tenant grant would leak to the agent members too).
   PLUS direct per-agent grants: read+write on the OWNER's private dataset
-  only — so a person's own AI can work their own projects while the tier
-  stays invisible to every other member, agent, and the admin.
+  only (safe agents ALSO get read+write on the OWNER's private-safe dataset;
+  unsafe agents get nothing on private-safe) — so a person's own AI can work
+  their own projects while the tiers stay invisible to every other member,
+  agent, and the admin.
   one "bootstrap" API key per principal -> credentials/<email>.json (chmod 600)
 
 Re-running is safe: every step checks-then-creates; permission grants are
@@ -185,6 +187,7 @@ async def main(reset_keys: bool = False) -> int:
     # 5) members + private datasets ----------------------------------------
     member_users: dict[str, object] = {}
     private_datasets: dict[str, object] = {}
+    private_safe_datasets: dict[str, object] = {}
     for email in tiers.MEMBER_EMAILS:
         user, _ = await _ensure_user(email)
         member_users[email] = user
@@ -209,6 +212,13 @@ async def main(reset_keys: bool = False) -> int:
         if created:
             print(f"  created private dataset '{priv_name}' for {email}")
         private_datasets[priv_name] = ds
+        # private-safe/<email>: the safe-only (ZDR) tier-3 dataset, owned by the
+        # member. Same checks-then-creates idempotency as the private dataset.
+        priv_safe_name = tiers.private_safe_dataset_name(email)
+        ds, created = await _dataset_for(user, priv_safe_name)
+        if created:
+            print(f"  created private-safe dataset '{priv_safe_name}' for {email}")
+        private_safe_datasets[priv_safe_name] = ds
 
     # 6) member agents (unsafe providers, partitioned with their OWNER) -----
     # parent = the OWNING member: anything an agent ingests into its own
@@ -264,7 +274,10 @@ async def main(reset_keys: bool = False) -> int:
         safe_agent_users[safe_email] = user
         for perm in (tiers.READ, tiers.WRITE):
             await give_permission_on_dataset(user, private_datasets[tiers.private_dataset_name(owner_email)].id, perm)
-        print(f"  ensured safe provider {safe_email} (owner {owner_email}); granted rw on owner's private")
+            await give_permission_on_dataset(
+                user, private_safe_datasets[tiers.private_safe_dataset_name(owner_email)].id, perm
+            )
+        print(f"  ensured safe provider {safe_email} (owner {owner_email}); granted rw on owner's private + private-safe")
 
     # 7) ACL matrix — granted to ROLES, never to the tenant -----------------
     for role_name, dataset_perms in tiers.ROLE_MATRIX.items():

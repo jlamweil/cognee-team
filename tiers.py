@@ -18,6 +18,9 @@ team             ``team``                   members rw + safe-providers rw
 private/<name>   ``private/<member>``       owner (full) + the owner's OWN agents
                                            and safe-providers (rw); nobody else
                                            — incl. admin
+private-safe/<n> ``private-safe/<member>``  owner (full) + the owner's OWN
+                                           safe-providers (rw) ONLY — no unsafe
+                                           agents, no other member, no admin
 ===============  =========================  ==================================
 
 Per-member agent providers (own AI, own projects)
@@ -35,10 +38,12 @@ Per-member safe (ZDR) providers
 A member's safe providers (``member_safe_agents`` in roster.json) are providers
 with a zero-data-retention guarantee. They get EXACTLY what an unsafe provider
 gets — ``public`` via the ``safe-provider`` role PLUS a DIRECT read/write grant
-on ``private/<owner>`` — PLUS read+write on the ``team`` tier. Everything else
-is identical to the agent path: partitioned with the owner, same
-``parent_user_id``, same per-owner direct grants, same owner's private tier.
-The only difference from the unsafe path is the added ``team`` read+write.
+on ``private/<owner>`` — PLUS read+write on the ``team`` tier PLUS a DIRECT
+read/write grant on the owner's safe-only ``private-safe/<owner>`` tier
+(sensitive projects, ZDR models only). Everything else is identical to the
+agent path: partitioned with the owner, same ``parent_user_id``, same per-owner
+direct grants, same owner's private tier. The differences from the unsafe path
+are the added ``team`` read+write and the owner's ``private-safe`` tier.
 
 Why unsafe agent providers cannot touch ``team``/``private`` even with tenant
 membership: cognee only ever unions *explicit* ACL grants (direct + role +
@@ -129,6 +134,11 @@ def private_dataset_name(member_email: str) -> str:
     return "private/" + member_email.replace(".", "_")
 
 
+def private_safe_dataset_name(member_email: str) -> str:
+    """Safe-only tier-3 dataset, e.g. private-safe/alice@example_com (sanitized)."""
+    return "private-safe/" + member_email.replace(".", "_")
+
+
 # ---------------------------------------------------------------------------
 # The matrix — (role or owner) -> dataset -> permissions
 # ---------------------------------------------------------------------------
@@ -157,18 +167,14 @@ ROLE_MATRIX: dict[str, dict[str, list[str]]] = {
 
 def visible_datasets_for(email: str) -> set[str]:
     """Datasets a freshly-bootstrapped principal must see (verify.py)."""
-    if email == ADMIN_EMAIL:
-        # Admin owns public+team; members' private datasets stay owner-only.
-        return {DATASET_PUBLIC, DATASET_TEAM}
     if email in MEMBER_EMAILS:
-        return {DATASET_PUBLIC, DATASET_TEAM, private_dataset_name(email)}
+        return {DATASET_PUBLIC, DATASET_TEAM, private_dataset_name(email), private_safe_dataset_name(email)}
+    if email == ADMIN_EMAIL:
+        return {DATASET_PUBLIC, DATASET_TEAM}
     if email in AGENT_OWNER:
-        # public via role + owner's private via direct grant. A member-scoped
-        # agent never sees team or any other member's private tier.
+        # unsafe: public + owner's private only (NO team, NO private-safe)
         return {DATASET_PUBLIC, private_dataset_name(AGENT_OWNER[email])}
     if email in SAFE_AGENT_OWNER:
-        # Safe (ZDR) provider: same as an agent PLUS the team tier. Checked
-        # AFTER the unsafe branch so an email listed in BOTH resolves to the
-        # RESTRICTIVE (unsafe) treatment.
-        return {DATASET_PUBLIC, DATASET_TEAM, private_dataset_name(SAFE_AGENT_OWNER[email])}
+        o = SAFE_AGENT_OWNER[email]
+        return {DATASET_PUBLIC, DATASET_TEAM, private_dataset_name(o), private_safe_dataset_name(o)}
     raise ValueError(f"unknown principal: {email}")
