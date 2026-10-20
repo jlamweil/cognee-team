@@ -24,8 +24,11 @@ cd cognee-team
 
 - One **"bootstrap" API key per principal**, stored in `credentials/<email>.json`
   (chmod 600). The raw key is only recoverable from `credentials/`.
-- `bootstrap.py` re-run reuses existing bootstrap keys; only `--reset-keys` mints new ones
-  (and invalidates the old — run with the server stopped).
+- `bootstrap.py` re-run reuses existing bootstrap keys; only `--reset-keys` mints new
+  ones (run with the server stopped). Re-mint is **additive**: old keys STAY
+  valid until explicitly revoked (`DELETE /api/v1/auth/api-keys/{id}` — see
+  `mcp/README.md` rules); there is a 10-key cap per principal, so revoking
+  after re-mint is part of rotation, not optional.
 - `DEFAULT_USER_PASSWORD` is **deliberately unset** (`.env`) — the default superuser
   account is not loginable; auth is by API key / per-user password.
 - To re-point a client after a key reset: read the key from `credentials/<email>.json`
