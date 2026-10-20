@@ -48,6 +48,50 @@ The MCP server proxies to the team API with that key, so every tool call is
 authenticated AND tier-scoped as the provider principal — identical to what
 raw HTTP callers get.
 
+### Concrete client entries (verified patterns)
+
+**opencode** — `~/.config/opencode/opencode.json`, `mcp` block. Note the
+expansion rules: opencode substitutes only `{env:VAR}` and `{file:path}` in
+config values — shell-style `${VAR}`/`$VAR` is NOT expanded — and MCP config
+hot-reloads (no restart). Keep the key out of the config file: write the raw
+key to a 600-mode file and reference it with `{file:}`:
+
+```json
+"team-memory": {
+  "type": "local",
+  "command": ["/absolute/path/to/uvx", "cognee-mcp@0.5.7"],
+  "environment": {
+    "COGNEE_BASE_URL": "http://127.0.0.1:8000",
+    "COGNEE_API_AUTH_SCHEME": "x-api-key",
+    "COGNEE_API_KEY": "{file:<600-mode key file holding the raw key>}"
+  },
+  "enabled": true,
+  "timeout": 60000
+}
+```
+
+Use the absolute uvx path (the spawner PATH is not trusted) and check status
+with `opencode mcp list`.
+
+**pi** — `~/.pi/agent/mcp.json`, `mcpServers` block. pi env values support
+`${NAME}` (process env) and `!cmd` (executes the rest as a shell command and
+uses its stdout). `!cmd` keeps the key out of the file and out of any
+launch-context assumption:
+
+```json
+"team-memory": {
+  "command": "/absolute/path/to/uvx",
+  "args": ["cognee-mcp@0.5.7"],
+  "env": {
+    "COGNEE_BASE_URL": "http://127.0.0.1:8000",
+    "COGNEE_API_AUTH_SCHEME": "x-api-key",
+    "COGNEE_API_KEY": "!<one-liner printing the api_key field of the credential JSON>"
+  }
+}
+```
+
+Check status with `pi mcp list` (state, tools, errors; exits 1 on failure).
+
 ### Warnings
 
 - COGNEE_SERVICE_URL is the variable for the serve() path (launching your own
