@@ -6,15 +6,20 @@ Hard-asserts, per principal, exactly what tiers.py promises — using the same
 credentials real clients hold (API keys in credentials/, minted by bootstrap):
 
   1. dataset VISIBILITY:   GET /api/v1/datasets
-     - admin sees public+team, members see +their private,
-       agents see ONLY public + their OWNER's private (member_agents)
-     - forbidden datasets must be absent, not just unsearchable
-  2. READ via shared UUID: POST /api/v1/search (CHUNKS — no LLM involved)
-     - agent on public and on owner's private -> 200/404-empty
-     - agent on team and on any OTHER member's private -> 403
-  3. WRITE via shared UUID: POST /api/v1/add
-     - agent into public and owner's private -> 200
-     - agent into team and any OTHER member's private -> 403
+      - admin sees public+team, members see +their private,
+        unsafe agents see ONLY public + their OWNER's private (member_agents),
+        safe agents (member_safe_agents) see public + team + their OWNER's private
+      - forbidden datasets must be absent, not just unsearchable
+   2. READ via shared UUID: POST /api/v1/search (CHUNKS — no LLM involved)
+      - agent on public and on owner's private -> 200/404-empty
+      - agent on team and on any OTHER member's private -> 403
+      - safe agent on public, team, and owner's private -> 200/404-empty
+      - safe agent on any OTHER member's private -> 403
+   3. WRITE via shared UUID: POST /api/v1/add
+      - agent into public and owner's private -> 200
+      - agent into team and any OTHER member's private -> 403
+      - safe agent into public, team, and owner's private -> 200
+      - safe agent into any OTHER member's private -> 403
   4. human JWT login works (web UI path); default superuser cannot log in.
 
 Exit 0 only if every assertion holds. Read boundary: a permitted dataset passes
@@ -165,6 +170,31 @@ def main() -> int:
             code = add_text(agent, pid, "should be denied")
             check(f"agent WRITE other member's private ({m}) -> 403 (got {code})", code == 403)
 
+    for email in tiers.SAFE_AGENT_EMAILS:
+        owner = tiers.SAFE_AGENT_OWNER[email]
+        own_private_id = private_ids[owner]
+        other_private_ids = {m: pid for m, pid in private_ids.items() if m != owner}
+        safe = api_key_client(email)
+        safe_datasets = visible_dataset_names(safe)
+        check(
+            f"safe agent {email} sees public + team + owner's private (no other private/*)",
+            tiers.DATASET_PUBLIC in safe_datasets
+            and tiers.DATASET_TEAM in safe_datasets
+            and tiers.private_dataset_name(owner) in safe_datasets
+            and not [n for n in safe_datasets if n.startswith("private/") and n != tiers.private_dataset_name(owner)],
+            str(sorted(safe_datasets)),
+        )
+        code, _ = search(safe, public_id);      check(f"safe agent can READ public (200/404-empty-ok, got {code})", code in (200, 404))
+        code, _ = search(safe, team_id);        check(f"safe agent can READ team (200/404-empty-ok, got {code})", code in (200, 404))
+        code, _ = search(safe, own_private_id); check(f"safe agent can READ owner's private (200/404-empty-ok, got {code})", code in (200, 404))
+        for m, pid in other_private_ids.items():
+            code, _ = search(safe, pid); check(f"safe agent READ other member's private ({m}) -> 403 (got {code})", code == 403)
+        code = add_text(safe, public_id, f"verify write by safe {email}");        check(f"safe agent can WRITE public (200, got {code})", code == 200)
+        code = add_text(safe, team_id, f"verify safe write by {email}");          check(f"safe agent can WRITE team (200, got {code})", code == 200)
+        code = add_text(safe, own_private_id, f"verify safe agent write by {email}"); check(f"safe agent can WRITE owner's private (200, got {code})", code == 200)
+        for m, pid in other_private_ids.items():
+            code = add_text(safe, pid, "should be denied"); check(f"safe agent WRITE other member's private ({m}) -> 403 (got {code})", code == 403)
+
     # -- 4. human login + default-user posture --------------------------------
     creds = json.loads((CREDS / f"{member_email}.json").read_text())
     with httpx.Client(base_url=BASE, timeout=60) as c:
@@ -183,7 +213,7 @@ def main() -> int:
     if failures:
         print(f"FAILED ({len(failures)}): {failures}")
         return 1
-    print("ALL CHECKS PASSED — every agent is confined to public + its owner's private tier.")
+    print("ALL CHECKS PASSED — unsafe agents are confined to public + their owner's private; safe agents additionally reach team.")
     return 0
 
 

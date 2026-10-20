@@ -35,7 +35,8 @@ Does: uv → code sync → venv + `cognee[api]` + fastembed → `.env` from temp
 tier datasets, ACL grants, API keys) → systemd unit install+start → `verify.py`
 (the full per-principal check suite). Exit 0 = enforced and green.
 
-Afterwards: edit `roster.json` (`member_emails` / `member_agents`), then
+Afterwards: edit `roster.json` (`member_emails` / `member_agents` /
+`member_safe_agents`), then
 `systemctl --user stop cognee-team-api && .venv/bin/python bootstrap.py &&
 systemctl --user start cognee-team-api && .venv/bin/python verify.py`.
 
@@ -77,13 +78,14 @@ One key per provider — never shared. Full details: `mcp/README.md`.
 
 ## Security model recap (single source of truth: `tiers.py`)
 
-| tier | members | own providers | other providers |
-|---|---|---|---|
-| `public` | read+write | read+write | read+write |
-| `team` | read+write | 403 everything | 403 everything |
-| `private/<member>` | owner only | **owner's agents: rw** | 403 everything |
+| tier | members | own unsafe providers | own safe providers (ZDR) | other providers |
+|---|---|---|---|---|
+| `public` | read+write | read+write | read+write | read+write |
+| `team` | read+write | 403 everything | read+write | 403 everything |
+| `private/<member>` | owner only | **owner's agents: rw** | **owner's safe agents: rw** | 403 everything |
 
-Each member maps their own providers in `roster.json` → `member_agents`.
+Each member maps their own providers in `roster.json` → `member_agents` (unsafe)
+and `member_safe_agents` (safe/ZDR — same partitioning plus the `team` tier).
 Enforced server-side by cognee ACLs (`ENABLE_BACKEND_ACCESS_CONTROL=true`,
 `REQUIRE_AUTHENTICATION=true` — pinned in `.env`). An agent can only ever pull
 `public` + its owner's private tier into its (retained) context — that is the

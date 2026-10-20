@@ -8,10 +8,12 @@ Creates (if missing), then prints a summary:
 
   admin@team.local (superuser, tenant owner)
   tenant "team"
-  roles  member / agent-provider
+  roles  member / agent-provider / safe-provider
   members  (MEMBER_EMAILS)  + their private/<email> dataset
   member agents  (member_agents: each member's OWN unsafe no-ZDR providers,
                   parent = the owning member)
+  member safe agents  (member_safe_agents: each member's OWN safe/ZDR providers,
+                      parent = the owning member; same partitioning + the team tier)
   datasets public (tier 1) / team (tier 2) / private/<member> (tier 3)
   ACL grants exactly as tiers.ROLE_MATRIX, granted to ROLES — never to the
   tenant principal (a tenant grant would leak to the agent members too).
@@ -166,7 +168,7 @@ async def main(reset_keys: bool = False) -> int:
 
     # 3) roles -------------------------------------------------------------
     roles = await _existing_role_map(tenant_id, admin)
-    for role_name in (tiers.MEMBER_ROLE, tiers.AGENT_ROLE):
+    for role_name in (tiers.MEMBER_ROLE, tiers.AGENT_ROLE, tiers.SAFE_AGENT_ROLE):
         if role_name not in roles:
             role_id = await create_role(role_name, admin.id)
             print(f"  created role '{role_name}'")
@@ -242,6 +244,28 @@ async def main(reset_keys: bool = False) -> int:
             await give_permission_on_dataset(agent_users[agent_email], private_datasets[priv_name].id, perm)
         print(f"  granted [read, write] on '{priv_name}' to agent {agent_email}")
 
+    # 6c) safe agents (ZDR providers, partitioned with their OWNER, + team tier)
+    safe_agent_users: dict[str, object] = {}
+    for safe_email, owner_email in tiers.SAFE_AGENT_OWNER.items():
+        owner = member_users.get(owner_email)
+        if owner is None:
+            raise SystemExit(f"safe agent {safe_email}: owner {owner_email} is not in member_emails")
+        user, _ = await _ensure_user(safe_email, parent_user_id=owner.id)
+        try:
+            await add_user_to_tenant(user.id, tenant_id, admin.id)
+        except Exception:
+            pass  # already a member — idempotent re-run
+        await select_tenant(user_id=user.id, tenant_id=tenant_id)  # REQUIRED: active tenant
+        try:
+            await add_user_to_role(user.id, roles[tiers.SAFE_AGENT_ROLE].id, admin.id)
+        except Exception:
+            pass
+        user = await get_user(user.id)
+        safe_agent_users[safe_email] = user
+        for perm in (tiers.READ, tiers.WRITE):
+            await give_permission_on_dataset(user, private_datasets[tiers.private_dataset_name(owner_email)].id, perm)
+        print(f"  ensured safe provider {safe_email} (owner {owner_email}); granted rw on owner's private")
+
     # 7) ACL matrix — granted to ROLES, never to the tenant -----------------
     for role_name, dataset_perms in tiers.ROLE_MATRIX.items():
         role = roles[role_name]
@@ -258,7 +282,7 @@ async def main(reset_keys: bool = False) -> int:
 
     # 9) API keys ------------------------------------------------------------
     print("  API keys:")
-    for email, user in {**agent_users, **member_users, tiers.ADMIN_EMAIL: admin}.items():
+    for email, user in {**agent_users, **safe_agent_users, **member_users, tiers.ADMIN_EMAIL: admin}.items():
         keys = await get_api_keys(user)
         named = [k for k in keys if getattr(k, "name", None) == "bootstrap"]
         if named and not reset_keys:

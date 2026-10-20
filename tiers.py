@@ -11,10 +11,13 @@ providers. Tiers are datasets, not tenants:
 ===============  =========================  ======================================
 tier             datasets                   who has access
 ===============  =========================  ======================================
-public           ``public``                 members rw, agent-providers rw
-team             ``team``                   members rw only (no agents)
+public           ``public``                 members rw, agent-providers rw,
+                                             safe-providers rw
+team             ``team``                   members rw + safe-providers rw
+                                           (no unsafe agents)
 private/<name>   ``private/<member>``       owner (full) + the owner's OWN agents
-                                           (rw); nobody else — incl. admin
+                                           and safe-providers (rw); nobody else
+                                           — incl. admin
 ===============  =========================  ==================================
 
 Per-member agent providers (own AI, own projects)
@@ -26,6 +29,16 @@ own AI can work their private projects, while no other member, no other
 member's agent, and not even the admin can read that tier. Agents of member M
 are created with ``parent_user_id = M`` so anything an agent ingests (scratch
 datasets it owns) is inherited downward by M only.
+
+Per-member safe (ZDR) providers
+-------------------------------
+A member's safe providers (``member_safe_agents`` in roster.json) are providers
+with a zero-data-retention guarantee. They get EXACTLY what an unsafe provider
+gets — ``public`` via the ``safe-provider`` role PLUS a DIRECT read/write grant
+on ``private/<owner>`` — PLUS read+write on the ``team`` tier. Everything else
+is identical to the agent path: partitioned with the owner, same
+``parent_user_id``, same per-owner direct grants, same owner's private tier.
+The only difference from the unsafe path is the added ``team`` read+write.
 
 Why unsafe agent providers cannot touch ``team``/``private`` even with tenant
 membership: cognee only ever unions *explicit* ACL grants (direct + role +
@@ -84,8 +97,19 @@ AGENT_OWNER: dict[str, str] = {
 }
 AGENT_EMAILS = list(AGENT_OWNER)
 
+# member -> that member's own safe (ZDR) providers. Same partitioning as the
+# unsafe path, plus read+write on the ``team`` tier (role ``safe-provider``).
+MEMBER_SAFE_AGENTS: dict[str, list[str]] = {
+    m: list(a) for m, a in _roster.get("member_safe_agents", {}).items()
+}
+SAFE_AGENT_OWNER: dict[str, str] = {
+    agent: member for member, agents in MEMBER_SAFE_AGENTS.items() for agent in agents
+}
+SAFE_AGENT_EMAILS = list(SAFE_AGENT_OWNER)
+
 MEMBER_ROLE = "member"            # humans: public + team
 AGENT_ROLE = "agent-provider"     # unsafe providers: public (+ owner's private)
+SAFE_AGENT_ROLE = "safe-provider"     # safe (ZDR) providers: public + team (+ owner's private)
 
 # Cognee permission names (the only four valid values).
 READ, WRITE, DELETE, SHARE = "read", "write", "delete", "share"
@@ -119,6 +143,10 @@ ROLE_MATRIX: dict[str, dict[str, list[str]]] = {
         DATASET_PUBLIC: [READ, WRITE],  # team decision: rw on public tier
         # DATASET_TEAM deliberately absent — unsafe providers never see it.
     },
+    SAFE_AGENT_ROLE: {
+        DATASET_PUBLIC: [READ, WRITE],
+        DATASET_TEAM: [READ, WRITE],   # safe (ZDR) providers may read+write the team tier
+    },
 }
 
 # Owner-only tier: create_authorized_dataset grants the creator
@@ -138,4 +166,9 @@ def visible_datasets_for(email: str) -> set[str]:
         # public via role + owner's private via direct grant. A member-scoped
         # agent never sees team or any other member's private tier.
         return {DATASET_PUBLIC, private_dataset_name(AGENT_OWNER[email])}
+    if email in SAFE_AGENT_OWNER:
+        # Safe (ZDR) provider: same as an agent PLUS the team tier. Checked
+        # AFTER the unsafe branch so an email listed in BOTH resolves to the
+        # RESTRICTIVE (unsafe) treatment.
+        return {DATASET_PUBLIC, DATASET_TEAM, private_dataset_name(SAFE_AGENT_OWNER[email])}
     raise ValueError(f"unknown principal: {email}")

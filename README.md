@@ -1,9 +1,10 @@
-# cognee-team — team knowledge memory with tiered access for unsafe AI providers
+# cognee-team — team knowledge memory with tiered access for AI providers
 
 Self-hosted [cognee](https://github.com/topoteretes/cognee) (pinned 1.6.2) with
 a provably-enforced partitioning: one tenant, tiered datasets, and per-provider
-principals for AI agent providers that have **no zero-data-retention (no-ZDR)**
-guarantees.
+principals for AI agent providers — both the **unsafe (no-ZDR)** ones, confined
+to `public` + their owner's `private`, and the **safe (ZDR)** ones, which
+additionally reach the `team` tier.
 
 > Ops/verification: `verify.py` against the live API — data-root and tunnel gotchas are in "Pitfalls already paid for" below.
 
@@ -17,7 +18,9 @@ material it should not keep.
 One-sentence pitch: your agents get read/write on the **public** tier and on
 their **own owner's private** tier, and a hard 403 everywhere else — enforced by
 the database, not by a prompt. If a provider logs or trains on what it is given,
-the worst it can retain is material its owner already owns.
+the worst it can retain is material its owner already owns. Providers with a
+zero-data-retention guarantee (the **safe** tier) additionally get read+write on
+the `team` tier; see the security-model table.
 
 Who it's for: small teams that want one shared, queryable memory for people and
 agents, where some agents run through third-party providers you do not fully
@@ -26,23 +29,25 @@ trust with your data. If every one of your agents is zero-data-retention, plain
 
 ## Security model (single source of truth: `tiers.py`)
 
-| tier | dataset | members (humans) | agent providers (per-member) |
-|---|---|---|---|
-| public | `public` | read + write | **read + write** (all agents) |
-| team | `team` | read + write | **nothing** (403 everywhere) |
-| private | `private/<member>` | owner full | **owner's OWN agents: read + write**; every other agent: nothing (403) |
+| tier | dataset | members (humans) | unsafe agents (per-member) | safe agents (per-member, ZDR) |
+|---|---|---|---|---|
+| public | `public` | read + write | **read + write** (all) | **read + write** (all) |
+| team | `team` | read + write | **nothing** (403 everywhere) | **read + write** |
+| private | `private/<member>` | owner full | **owner's OWN agents: read + write**; every other agent: nothing (403) | **owner's OWN safe agents: read + write**; every other: nothing (403) |
 
 Roster (`roster.json`) maps each member to their own providers via
-`member_agents`. A person's own AI can work their private projects; the tier
-stays invisible to every other member, agent, and the admin. Agents of member M
-are created with `parent_user_id = M` — anything an agent ingests into its own
-scratch datasets is inherited downward by M only.
+`member_agents` (unsafe, no-ZDR) and `member_safe_agents` (safe, ZDR). A
+person's own AI can work their private projects; the tier stays invisible to
+every other member, agent, and the admin. Agents of member M are created with
+`parent_user_id = M` — anything an agent ingests into its own scratch datasets
+is inherited downward by M only. Safe providers get the same partitioning plus
+read+write on the `team` tier.
 
 - **Isolation is enforced by cognee, not by convention.** `ENABLE_BACKEND_ACCESS_CONTROL=true`
   + `REQUIRE_AUTHENTICATION=true` are pinned in `.env`; every dataset carries a
   tenant stamp and every recall is filtered by *active tenant + explicit ACL
   grants*. Tenants start with zero permissions; grants flow only through the
-  `member` / `agent-provider` ROLES or explicit per-principal grants (the
+  `member` / `agent-provider` / `safe-provider` ROLES or explicit per-principal grants (the
   owner-private grants) — never through the tenant principal
   (a tenant grant would leak to agents too; see the OPERATOR RULE in `tiers.py`).
 - **No-ZDR rationale.** The risk of a no-ZDR provider is content *flowing out*
@@ -104,6 +109,16 @@ created with parent = the owning member and gets: `public` (via the
 `agent-provider` role) **plus the owner's `private/<owner>` (direct grants)**
 — nothing else. Give the provider exactly its `credentials/<email>.json`
 (`X-Api-Key`) and point it at `mcp/README.md`.
+
+## Onboarding a safe (ZDR) provider (per member)
+
+Identical flow, but register the provider in the member's `member_safe_agents`
+list instead of `member_agents`. One principal **per provider**, never shared —
+the key is the revocation boundary. The provider is created with parent = the
+owning member and gets: `public` (via the `safe-provider` role) **plus the
+owner's `private/<owner>` (direct grants) plus `team` (via the role)** —
+nothing else. Everything else is identical to the unsafe path; give it its
+`credentials/<email>.json` (`X-Api-Key`) and point it at `mcp/README.md`.
 
 ## Revoke a provider (or its write access)
 

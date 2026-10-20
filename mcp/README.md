@@ -1,17 +1,23 @@
 # MCP access for AI agent providers
 
-Each unsafe provider gets its **own** principal (user + API key in
+Each provider gets its **own** principal (user + API key in
 `credentials/<email>.json`), registered under its **owning member** in
-`roster.json` (`member_agents`). Never share one key between providers — the key
+`roster.json` — unsafe (no-ZDR) providers under `member_agents` (role
+`agent-provider`), safe (ZDR) providers under `member_safe_agents` (role
+`safe-provider`). Safe providers connect **identically** but may additionally
+reach the `team` tier. Never share one key between providers — the key
 IS the security boundary, so per-provider keys are what makes per-provider
 revocation possible.
 
 ## What the provider's principal can do
 
 Exactly what `tiers.py` grants its principal: read + write on `public` (via
-the `agent-provider` role) **plus read + write on its owner's
-`private/<owner>`** (direct grants). Team and every OTHER member's private
-datasets return 403 for every call — verified by `../verify.py`.
+the `agent-provider` role for unsafe providers, the `safe-provider` role for
+safe ones) **plus read + write on its owner's `private/<owner>`** (direct
+grants). For **unsafe** providers, `team` and every OTHER member's private
+datasets return 403 for every call. For **safe** (ZDR) providers, `team` is
+readable and writable (via the `safe-provider` role) and only the OTHER
+members' private datasets return 403 — verified by `../verify.py`.
 
 ## Stdio MCP client config (agents running on this box)
 

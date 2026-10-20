@@ -1,5 +1,5 @@
 {
-  "_comment": "Copy to roster.json (gitignored, chmod 600) and edit. Emails are login IDs, not mailboxes — but must pass email validation ('.local' is rejected). member_agents: per-member OWN agent providers (one per provider, revocable per key) — each gets the public tier plus THAT member's private tier, nothing else.",
+  "_comment": "Copy to roster.json (gitignored, chmod 600) and edit. Emails are login IDs, not mailboxes — but must pass email validation ('.local' is rejected). member_agents: per-member OWN agent providers (one per provider, revocable per key) — each gets the public tier plus THAT member's private tier, nothing else. member_safe_agents: per-member OWN safe (ZDR) providers — same as member_agents plus the team tier.",
   "domain": "example.com",
   "admin_email": "admin@example.com",
   "member_emails": [
@@ -8,6 +8,11 @@
   "member_agents": {
     "alice@example.com": [
       "alice-agent@agents.example.com"
+    ]
+  },
+  "member_safe_agents": {
+    "alice@example.com": [
+      "alice-safe@agents.example.com"
     ]
   }
 }

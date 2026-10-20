@@ -111,7 +111,7 @@ say "7/7 verify (19 checks)"
 if .venv/bin/python verify.py; then
   say "INSTALL OK — server on :8000, tiers enforced"
   echo "Credentials: $ROOT/credentials/*.json (chmod 600; share per-person)"
-  echo "Next: edit roster.json (real emails + member_agents), stop server, re-run bootstrap.py, verify.py"
+  echo "Next: edit roster.json (real emails + member_agents + member_safe_agents), stop server, re-run bootstrap.py, verify.py"
 else
   say "VERIFY FAILED — see output above"; exit 1
 fi
