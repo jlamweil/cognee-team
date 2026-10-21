@@ -91,9 +91,10 @@ SEED_TEXT = {
     ),
 }
 
-# C3: write permissions a safe provider holds on the OWNER's private tier.
-# (C4 tightens this to read-only, moving the safe write to private-safe.)
-SAFE_OWNER_PRIVATE_PERMS = (tiers.READ, tiers.WRITE)
+# Write permissions a safe provider holds on the OWNER's private tier.
+# Read-only: a safe provider's private writes go to the owner's private-safe
+# tier, never to the unsafe-reachable private tier (closes the leak).
+SAFE_OWNER_PRIVATE_PERMS = (tiers.READ,)
 
 
 def _save_credentials(email: str, password: str | None, api_key: str | None) -> Path:

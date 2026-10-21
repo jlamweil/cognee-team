@@ -17,12 +17,14 @@ credentials real clients hold (API keys in credentials/, minted by bootstrap):
         private-safe -> 403
       - safe agent on public, team, and owner's private + private-safe -> 200/404-empty
       - safe agent on any OTHER member's private or private-safe -> 403
-   3. WRITE via shared UUID: POST /api/v1/add
-      - agent into public and owner's private -> 200
-      - agent into team, owner's private-safe, and any OTHER member's private
-        or private-safe -> 403
-      - safe agent into public, team, and owner's private + private-safe -> 200
-      - safe agent into any OTHER member's private or private-safe -> 403
+    3. WRITE via shared UUID: POST /api/v1/add
+       - agent into owner's private -> 200; agent into public -> 403 (the
+         private -> public write leak is closed here)
+       - agent into team, owner's private-safe, and any OTHER member's private
+         or private-safe -> 403
+       - safe agent into team + owner's private-safe -> 200; safe into public
+         and into owner's private -> 403
+       - safe agent into any OTHER member's private or private-safe -> 403
   4. human JWT login works (web UI path); default superuser cannot log in.
 
 Exit 0 only if every assertion holds. Read boundary: a permitted dataset passes
@@ -181,7 +183,7 @@ def main() -> int:
 
         # -- 3. write boundary -----------------------------------------------
         code = add_text(agent, public_id, f"verify write by {email}")
-        check(f"agent can WRITE public (200, got {code})", code == 200)
+        check(f"agent WRITE public -> 403 (got {code})", code == 403)
         code = add_text(agent, own_private_id, f"verify agent write by {email}")
         check(f"agent can WRITE owner's private (200, got {code})", code == 200)
         code = add_text(agent, team_id, "should be denied")
@@ -221,9 +223,9 @@ def main() -> int:
             code, _ = search(safe, pid); check(f"safe agent READ other member's private ({m}) -> 403 (got {code})", code == 403)
         for m, pid in other_private_safe_ids.items():
             code, _ = search(safe, pid); check(f"safe agent READ other member's private-safe ({m}) -> 403 (got {code})", code == 403)
-        code = add_text(safe, public_id, f"verify write by safe {email}");        check(f"safe agent can WRITE public (200, got {code})", code == 200)
+        code = add_text(safe, public_id, f"verify write by safe {email}");        check(f"safe agent WRITE public -> 403 (got {code})", code == 403)
         code = add_text(safe, team_id, f"verify safe write by {email}");          check(f"safe agent can WRITE team (200, got {code})", code == 200)
-        code = add_text(safe, own_private_id, f"verify safe agent write by {email}"); check(f"safe agent can WRITE owner's private (200, got {code})", code == 200)
+        code = add_text(safe, own_private_id, f"verify safe agent write by {email}"); check(f"safe agent WRITE owner's private -> 403 (got {code})", code == 403)
         code = add_text(safe, own_private_safe_id, f"verify safe agent write by {email}"); check(f"safe agent can WRITE owner's private-safe (200, got {code})", code == 200)
         for m, pid in other_private_ids.items():
             code = add_text(safe, pid, "should be denied"); check(f"safe agent WRITE other member's private ({m}) -> 403 (got {code})", code == 403)

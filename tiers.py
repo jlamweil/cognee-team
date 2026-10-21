@@ -12,7 +12,8 @@ providers. Tiers are datasets, not tenants:
 tier             datasets                   who has access
 ===============  =========================  ======================================
 public           ``public``                 members rw, agent-providers rw,
-                                             safe-providers rw
+                                             safe-providers RO (agents never
+                                             write public)
 team             ``team``                   members rw + safe-providers rw
                                            (no unsafe agents)
 private/<name>   ``private/<member>``       owner (full) + the owner's OWN agents
@@ -60,9 +61,10 @@ only places tenant grants would ever be written.
 
 No-ZDR providers and writes: an agent that "remembers" with a dataset *name*
 resolves names only against datasets IT owns (cognee rule), so it can only
-pollute its own scratch datasets. Writing into the shared ``public`` dataset
-requires its UUID and the ``write`` grant — kept on by team decision, revoke
-with one line (see README "Revoke a provider's write access").
+pollute its own scratch datasets. Agents are read-only on the shared
+``public`` tier -- they can recall from it but never write it -- so content
+read from a private tier cannot be composed back into public. Only human
+members write public (see README "Revoke a provider's write access").
 """
 
 from __future__ import annotations
@@ -150,11 +152,11 @@ ROLE_MATRIX: dict[str, dict[str, list[str]]] = {
         DATASET_TEAM: [READ, WRITE],
     },
     AGENT_ROLE: {
-        DATASET_PUBLIC: [READ, WRITE],  # team decision: rw on public tier
+        DATASET_PUBLIC: [READ],  # read-only on public: agents pull from public, never write it
         # DATASET_TEAM deliberately absent — unsafe providers never see it.
     },
     SAFE_AGENT_ROLE: {
-        DATASET_PUBLIC: [READ, WRITE],
+        DATASET_PUBLIC: [READ],  # read-only on public: safe providers may not write public
         DATASET_TEAM: [READ, WRITE],   # safe (ZDR) providers may read+write the team tier
     },
 }
