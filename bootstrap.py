@@ -59,7 +59,11 @@ from cognee.modules.users.methods import (
 from cognee.modules.users.permissions.methods import (
     give_permission_on_dataset,
 )
+from cognee.modules.users.permissions.methods.revoke_permission_on_dataset import (
+    revoke_permission_on_dataset,
+)
 from cognee.modules.users.roles.methods import add_user_to_role, create_role
+from cognee.modules.users.models import ACL, Permission
 from cognee.modules.users.tenants.methods import (
     add_user_to_tenant,
     create_tenant,
@@ -86,6 +90,10 @@ SEED_TEXT = {
         "have no permission on this dataset; their recalls can never reach it."
     ),
 }
+
+# C3: write permissions a safe provider holds on the OWNER's private tier.
+# (C4 tightens this to read-only, moving the safe write to private-safe.)
+SAFE_OWNER_PRIVATE_PERMS = (tiers.READ, tiers.WRITE)
 
 
 def _save_credentials(email: str, password: str | None, api_key: str | None) -> Path:
@@ -135,7 +143,108 @@ async def _dataset_for(user, name: str):
     return await create_authorized_dataset(name, user), True
 
 
-async def main(reset_keys: bool = False) -> int:
+async def _acl_present(principal_id, dataset_id, permission: str) -> bool:
+    """True iff the exact ACL row (principal, dataset, permission) exists.
+
+    A direct row check -- NOT the transitive effective-set resolution -- so the
+    reconciliation revokes/grants a specific grant without conflating role,
+    direct, and tenant inheritance.
+    """
+    engine = get_relational_engine()
+    async with engine.get_async_session() as session:
+        perm_row = (
+            await session.execute(select(Permission).filter(Permission.name == permission))
+        ).scalars().first()
+        if perm_row is None:
+            return False
+        row = (
+            await session.execute(
+                select(ACL).filter(
+                    ACL.principal_id == principal_id,
+                    ACL.dataset_id == dataset_id,
+                    ACL.permission_id == perm_row.id,
+                )
+            )
+        ).scalars().first()
+        return row is not None
+
+
+async def _reconcile(
+    *,
+    roles,
+    datasets,
+    private_datasets,
+    private_safe_datasets,
+    agent_users,
+    safe_agent_users,
+    dry_run: bool,
+) -> None:
+    """Converge the managed grant scope to the desired set; revoke the excess.
+
+    Managed scope (and ONLY it) = the three roles x {public, team}, each agent
+    x its owner's private, each safe agent x (owner's private + private-safe).
+    Owner scratch datasets and the owner's own grants are never touched, so the
+    reconciliation cannot over-revoke.
+    """
+    entries: list[tuple] = []
+    for role_name in tiers.ROLE_MATRIX:
+        role = roles[role_name]
+        for ds_name in (tiers.DATASET_PUBLIC, tiers.DATASET_TEAM):
+            for perm in (tiers.READ, tiers.WRITE):
+                entries.append((role, datasets[ds_name].id, perm, f"role {role_name} | {ds_name} | {perm}"))
+    for agent_email, owner_email in tiers.AGENT_OWNER.items():
+        ds_id = private_datasets[tiers.private_dataset_name(owner_email)].id
+        for perm in (tiers.READ, tiers.WRITE):
+            entries.append((agent_users[agent_email], ds_id, perm, f"agent {agent_email} | owner-private | {perm}"))
+    for safe_email, owner_email in tiers.SAFE_AGENT_OWNER.items():
+        priv_id = private_datasets[tiers.private_dataset_name(owner_email)].id
+        safe_id = private_safe_datasets[tiers.private_safe_dataset_name(owner_email)].id
+        for perm in (tiers.READ, tiers.WRITE):
+            entries.append((safe_agent_users[safe_email], priv_id, perm, f"safe {safe_email} | owner-private | {perm}"))
+            entries.append((safe_agent_users[safe_email], safe_id, perm, f"safe {safe_email} | owner-private-safe | {perm}"))
+
+    desired: set = set()
+    for role_name, ds_perms in tiers.ROLE_MATRIX.items():
+        for ds_name, perms in ds_perms.items():
+            for perm in perms:
+                desired.add((roles[role_name].id, datasets[ds_name].id, perm))
+    for agent_email, owner_email in tiers.AGENT_OWNER.items():
+        for perm in (tiers.READ, tiers.WRITE):
+            desired.add((agent_users[agent_email].id, private_datasets[tiers.private_dataset_name(owner_email)].id, perm))
+    for safe_email, owner_email in tiers.SAFE_AGENT_OWNER.items():
+        for perm in SAFE_OWNER_PRIVATE_PERMS:
+            desired.add((safe_agent_users[safe_email].id, private_datasets[tiers.private_dataset_name(owner_email)].id, perm))
+        for perm in (tiers.READ, tiers.WRITE):
+            desired.add((safe_agent_users[safe_email].id, private_safe_datasets[tiers.private_safe_dataset_name(owner_email)].id, perm))
+
+    to_revoke: list[tuple] = []
+    to_grant: list[tuple] = []
+    for principal, ds_id, perm, label in entries:
+        present = await _acl_present(principal.id, ds_id, perm)
+        want = (principal.id, ds_id, perm) in desired
+        if present and not want:
+            to_revoke.append((principal, ds_id, perm, label))
+        elif want and not present:
+            to_grant.append((principal, ds_id, perm, label))
+
+    verb = "would-revoke" if dry_run else "revoke"
+    for principal, ds_id, perm, label in to_revoke:
+        print(f"  {verb} {label}")
+        if not dry_run:
+            await revoke_permission_on_dataset(principal, ds_id, perm)
+    verb = "would-grant" if dry_run else "grant"
+    for principal, ds_id, perm, label in to_grant:
+        print(f"  {verb} {label}")
+        if not dry_run:
+            await give_permission_on_dataset(principal, ds_id, perm)
+
+    if dry_run:
+        print(f"  reconcile DRY-RUN: {len(to_revoke)} would-revoke, {len(to_grant)} would-grant")
+    else:
+        print(f"  reconcile: revoked {len(to_revoke)}, granted {len(to_grant)}")
+
+
+async def main(reset_keys: bool = False, reconcile_dry_run: bool = False) -> int:
     print("== cognee-team bootstrap ==")
     run_id = uuid_mod.uuid4().hex[:8]
     t_start = time.monotonic()
@@ -303,7 +412,20 @@ async def main(reset_keys: bool = False) -> int:
                 await give_permission_on_dataset(role, datasets[ds_name].id, perm)
         print(f"  granted {dataset_perms} on role '{role_name}'")
 
-    step("ACL matrix")
+    # 7b) reconcile -- converge the managed scope to the desired set ---------
+    #     revoke present-but-unwanted grants, grant wanted-but-absent ones.
+    #     No-op when the matrix already matches the live DB.
+    await _reconcile(
+        roles=roles,
+        datasets=datasets,
+        private_datasets=private_datasets,
+        private_safe_datasets=private_safe_datasets,
+        agent_users=agent_users,
+        safe_agent_users=safe_agent_users,
+        dry_run=reconcile_dry_run,
+    )
+    step("reconcile")
+
     # 8) seed tier content (ingest only — no cognify, no LLM needed) --------
     for ds_name, text in SEED_TEXT.items():
         ds = await get_authorized_dataset_by_name(ds_name, admin, tiers.READ)
@@ -335,4 +457,11 @@ async def main(reset_keys: bool = False) -> int:
 
 
 if __name__ == "__main__":
-    raise SystemExit(asyncio.run(main(reset_keys="--reset-keys" in sys.argv)))
+    raise SystemExit(
+        asyncio.run(
+            main(
+                reset_keys="--reset-keys" in sys.argv,
+                reconcile_dry_run="--reconcile-dry-run" in sys.argv,
+            )
+        )
+    )
