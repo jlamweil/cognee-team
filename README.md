@@ -15,12 +15,14 @@ team of AI agents, with access strictly tiered so that an AI provider that
 *retains* the data it sees (no zero-data-retention / no-ZDR) can never be fed
 material it should not keep.
 
-One-sentence pitch: your agents get read/write on the **public** tier and on
-their **own owner's private** tier, and a hard 403 everywhere else — enforced by
-the database, not by a prompt. If a provider logs or trains on what it is given,
-the worst it can retain is material its owner already owns. Providers with a
-zero-data-retention guarantee (the **safe** tier) additionally get read+write on
-the `team` tier; see the security-model table.
+One-sentence pitch: your agents get **read** on the **public** tier and
+**read/write** on their **own owner's private** tier, and a hard 403 everywhere
+else — enforced by the database, not by a prompt. If a provider logs or trains
+on what it is given, the worst it can retain is material its owner already owns;
+agents are read-only on `public`, so nothing they read can be written back to it.
+Providers with a zero-data-retention guarantee (the **safe** tier) additionally
+get read+write on the `team` tier and their owner's `private-safe` tier; see the
+security-model table.
 
 Who it's for: small teams that want one shared, queryable memory for people and
 agents, where some agents run through third-party providers you do not fully
@@ -31,9 +33,9 @@ trust with your data. If every one of your agents is zero-data-retention, plain
 
 | tier | dataset | members (humans) | unsafe agents (per-member) | safe agents (per-member, ZDR) |
 |---|---|---|---|---|
-| public | `public` | read + write | **read + write** (all) | **read + write** (all) |
+| public | `public` | read + write | **read only** | **read only** |
 | team | `team` | read + write | **nothing** (403 everywhere) | **read + write** |
-| private | `private/<member>` | owner full | **owner's OWN agents: read + write**; every other agent: nothing (403) | **owner's OWN safe agents: read + write**; every other: nothing (403) |
+| private | `private/<member>` | owner full | **owner's OWN agents: read + write**; every other agent: nothing (403) | **owner's OWN safe agents: read only** (writes go to private-safe); every other: nothing (403) |
 | private-safe | `private-safe/<member>` | owner full | **nothing** (403 everywhere) | **owner's OWN safe agents: read + write**; every other: nothing (403) |
 
 Roster (`roster.json`) maps each member to their own providers via
@@ -42,10 +44,11 @@ person's own AI can work their private projects; the tier stays invisible to
 every other member, agent, and the admin. Agents of member M are created with
 `parent_user_id = M` — anything an agent ingests into its own scratch datasets
 is inherited downward by M only. Each member has **two** private tiers:
-`private/<member>` (unsafe-allowed — both agent kinds get rw here) and
-`private-safe/<member>` (safe-only — only ZDR providers reach it). Safe
-providers get the same partitioning as unsafe ones, plus `team` and the
-owner's `private-safe` tier.
+`private/<member>` (unsafe-allowed — unsafe agents get rw here; safe agents get
+read-only, their private writes go to private-safe) and `private-safe/<member>`
+(safe-only — only ZDR providers reach it, rw). Safe providers get the same
+partitioning as unsafe ones, plus `team` (rw) and the owner's `private-safe`
+tier (rw) — read-only on `public` like every agent.
 
 - **Isolation is enforced by cognee, not by convention.** `ENABLE_BACKEND_ACCESS_CONTROL=true`
   + `REQUIRE_AUTHENTICATION=true` are pinned in `.env`; every dataset carries a
@@ -55,10 +58,12 @@ owner's `private-safe` tier.
   owner-private grants) — never through the tenant principal
   (a tenant grant would leak to agents too; see the OPERATOR RULE in `tiers.py`).
 - **No-ZDR rationale.** The risk of a no-ZDR provider is content *flowing out*
-  into retained context. Agents can only ever resolve `public` + their **own
-  member's** private tier (visibility, read, and write are all verified
-  403/200 in `verify.py`), so retained context can never contain other
-  members' material.
+  into retained context. Agents can only ever read `public` and their **own
+  member's** private tier, and can only write their own member's private tier
+  (safe agents: only the owner's `private-safe`) — `public` is read-only for
+  every agent, so retained context can never contain other members' material and
+  can never be composed back into `public`. Visibility, read, and write are all
+  asserted 200/403 in `verify.py`.
 - **Names resolve only against caller-owned datasets** (cognee rule). A shared
   dataset must be addressed by UUID — one more wall against accidental access.
 - **The auto-created default superuser has no password and cannot log in.**
@@ -69,9 +74,10 @@ owner's `private-safe` tier.
 cognee-team/
   .env                 posture, storage, LLM/embedding config (gitignored)
   tiers.py             THE matrix: principals, roles, datasets, grants
-  bootstrap.py         idempotent provisioning (LLM-free; run server-stopped)
-  verify.py            per-principal hard assertions against the live API
-  demo_agent_recall.py E2E: agent pulls public chunk, denied on team
+   bootstrap.py         idempotent provisioning + reconcile (LLM-free; server-stopped)
+   verify.py            per-principal hard assertions against the live API
+   scripts/dump_acl.py  read-only effective read/write footprint + before/after diff
+   demo_agent_recall.py E2E: agent pulls public chunk, denied on team
   cognify_seed.py      one-time graph build for seeded datasets
   run_api.sh           server launcher (systemd calls this)
   systemd/cognee-team-api.service
@@ -88,6 +94,10 @@ systemctl --user restart cognee-team-api    # after .env / code changes
 cd cognee-team && .venv/bin/python verify.py   # after ANY permission or config change
 ```
 
+ - **Inspect grants:** `.venv/bin/python scripts/dump_acl.py` prints each
+   principal's effective read/write sets; `--json snap.json` then `--diff
+   snap.json` give before/after evidence. `bootstrap.py` now reconciles the
+   managed ACL to `tiers.py` (revokes drift); `--reconcile-dry-run` previews it.
 - **API:** `http://<host>:8000` (bind 0.0.0.0; set `COGNEE_BIND=127.0.0.1` in
   the unit for loopback-only). Auth: `X-Api-Key` header or JWT via
   `POST /api/v1/auth/login`.
@@ -119,9 +129,10 @@ created with parent = the owning member and gets: `public` (via the
 Identical flow, but register the provider in the member's `member_safe_agents`
 list instead of `member_agents`. One principal **per provider**, never shared —
 the key is the revocation boundary. The provider is created with parent = the
-owning member and gets: `public` (via the `safe-provider` role) **plus the
-owner's `private/<owner>` and `private-safe/<owner>` (direct grants) plus
-`team` (via the role)** — nothing else. Everything else is identical to the
+owning member and gets: `public` (**read only**, via the `safe-provider` role)
+**plus the owner's `private/<owner>` (read only, direct grant) and
+`private-safe/<owner>` (read + write, direct grant) plus `team` (read + write,
+via the role)** — nothing else. Everything else is identical to the
 unsafe path; give it its `credentials/<email>.json` (`X-Api-Key`) and point it
 at `mcp/README.md`.
 
@@ -130,11 +141,15 @@ at `mcp/README.md`.
 ```bash
 # all access: delete its key (it dies immediately)
 curl -X DELETE http://127.0.0.1:8000/api/v1/auth/api-keys/<key_id> -H "X-Api-Key: $ADMIN_KEY"
-# write-only revoke on public (provider keeps read):
-#   tiers.py: drop WRITE from AGENT_ROLE[public] -> re-run bootstrap -> verify.py
 ```
 
-Bootstrap re-runs are idempotent; `--reset-keys` re-mints API keys.
+Providers are **read-only on `public` by default** — there is nothing to revoke
+there. To deliberately grant one of them public write (which re-opens the
+private → public leak), add `WRITE` to that role's `public` entry in `tiers.py`,
+re-run `bootstrap.py` (the reconciliation grants it), then re-run `verify.py`.
+
+Bootstrap re-runs are idempotent and **reconcile** the managed grants to
+`tiers.py` (revoking drift); `--reset-keys` re-mints API keys.
 
 ## LLM stack (extraction quality vs. privacy)
 
@@ -199,9 +214,11 @@ seconds. Extraction runs through cognee's LLM config only; ACLs are LLM-free.
 ## Verification story
 
 `verify.py` asserts, per principal, against the live API with real credentials:
-visibility (datasets list), read (CHUNKS search), write (add), JWT login, and
-the default-user posture. `demo_agent_recall.py` is the human-readable E2E.
-Run both after any change to tiers, grants, or cognee upgrades. Exit 0 = ship.
+visibility (datasets list), read (CHUNKS search), **write (add) — including the
+negative space, where agents get a hard 403 writing `public` (and safe agents a
+403 on the owner's `private`)** — JWT login, and the default-user posture.
+`demo_agent_recall.py` is the human-readable E2E. Run both after any change to
+tiers, grants, or cognee upgrades. Exit 0 = ship.
 
 ## License
 

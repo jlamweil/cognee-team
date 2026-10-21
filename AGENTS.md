@@ -42,12 +42,20 @@ cd cognee-team
   emails (from `roster.json`). Change the matrix there, re-run `bootstrap.py`, re-run
   `verify.py`.
 - ACL grants go to **ROLES** (`member`, `agent-provider`, `safe-provider`), never the
-  tenant principal (a tenant grant would leak to agent members). Per-agent private
-  grants are direct on the owner's `private/<owner>`; per-safe-provider grants also
-  cover the owner's safe-only `private-safe/<owner>` (unsafe agents get nothing on it).
+  tenant principal (a tenant grant would leak to agent members). Agents are
+  **read-only on `public`** (the private → public write leak is closed). Per-agent
+  private grants are direct on the owner's `private/<owner>`: unsafe agents get
+  read+write there, safe agents get **read-only** there plus read+write on the
+  owner's safe-only `private-safe/<owner>` (their private writes go to private-safe).
 - `verify.py` is the negative-space proof: unsafe agents must NOT see team, other
-  members' private tiers, or the owner's `private-safe` (safe agents DO see `team`
-  + both private tiers); the default superuser must NOT log in.
+  members' private tiers, or the owner's `private-safe`, and must get a hard 403
+  **writing `public`** (safe agents too); safe agents get a 403 writing the owner's
+  `private` (their private writes go to `private-safe`). The default superuser must
+  NOT log in.
+- `bootstrap.py` **reconciles** the managed grant scope to `tiers.py` after
+  provisioning (revokes present-but-unwanted, grants wanted-but-absent);
+  `--reconcile-dry-run` previews the delta. `scripts/dump_acl.py` is the read-only
+  effective read/write footprint per principal + before/after diff.
 
 ## Current state
 

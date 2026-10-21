@@ -86,6 +86,22 @@ AGENT private/<owner>  http=404 blocked=False :: (empty recall)
 ADMIN public       http=200 blocked=False :: ...
 ```
 
+## dump_acl.py — effective read/write footprint (read-only)
+
+Resolves each principal's permissions the way cognee does at request time
+(direct grants + role + tenant inheritance) and prints the true "can this
+principal read/write it" sets. Read-only (SELECTs only); safe to run with the
+server up.
+
+```bash
+.venv/bin/python scripts/dump_acl.py                    # human matrix
+.venv/bin/python scripts/dump_acl.py --json snap.json   # machine snapshot
+.venv/bin/python scripts/dump_acl.py --diff snap.json   # added/removed vs snapshot
+```
+
+Capture the ACL before/after an `tiers.py` change + `bootstrap.py` reconcile
+(the reconcile's `--reconcile-dry-run` shows the same delta inline).
+
 ## Failure interpretation (observed live)
 
 | Symptom | Cause | Fix |
