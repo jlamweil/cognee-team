@@ -36,6 +36,7 @@ import json
 import secrets
 import stat
 import sys
+import time
 import uuid as uuid_mod
 from pathlib import Path
 
@@ -136,12 +137,19 @@ async def _dataset_for(user, name: str):
 
 async def main(reset_keys: bool = False) -> int:
     print("== cognee-team bootstrap ==")
+    run_id = uuid_mod.uuid4().hex[:8]
+    t_start = time.monotonic()
+
+    def step(label: str) -> None:
+        print(f"    [+{time.monotonic() - t_start:8.2f}s] run={run_id} {label}")
+
 
     # 0) migrations (idempotent — at-head is a no-op; the API server runs the
     #    same on startup, so either ordering works) -------------------------
     await run_migrations()
     print("  migrations at head")
 
+    step("migrations at head")
     # 1) admin -------------------------------------------------------------
     # NB: get_user_by_email returns None (does not raise) when absent.
     admin = await get_user_by_email(tiers.ADMIN_EMAIL)
@@ -157,6 +165,7 @@ async def main(reset_keys: bool = False) -> int:
         _save_credentials(tiers.ADMIN_EMAIL, password, None)
         print(f"  created admin {tiers.ADMIN_EMAIL} (superuser)")
 
+    step("admin")
     # 2) tenant ------------------------------------------------------------
     # get_user_tenants returns [{"id": str, "name": str}] — coerce to UUID.
     tenant_id = None
@@ -168,6 +177,7 @@ async def main(reset_keys: bool = False) -> int:
         print(f"  created tenant '{tiers.TENANT_NAME}'")
     admin = await get_user(admin.id)  # refresh: active tenant now set
 
+    step("tenant")
     # 3) roles -------------------------------------------------------------
     roles = await _existing_role_map(tenant_id, admin)
     for role_name in (tiers.MEMBER_ROLE, tiers.AGENT_ROLE, tiers.SAFE_AGENT_ROLE):
@@ -176,6 +186,7 @@ async def main(reset_keys: bool = False) -> int:
             print(f"  created role '{role_name}'")
             roles = await _existing_role_map(tenant_id, admin)
 
+    step("roles")
     # 4) shared datasets (owned by admin, stamped with tenant "team") -------
     datasets: dict[str, object] = {}
     for name in (tiers.DATASET_PUBLIC, tiers.DATASET_TEAM):
@@ -184,6 +195,7 @@ async def main(reset_keys: bool = False) -> int:
         if created:
             print(f"  created dataset '{name}'")
 
+    step("shared datasets")
     # 5) members + private datasets ----------------------------------------
     member_users: dict[str, object] = {}
     private_datasets: dict[str, object] = {}
@@ -220,6 +232,7 @@ async def main(reset_keys: bool = False) -> int:
             print(f"  created private-safe dataset '{priv_safe_name}' for {email}")
         private_safe_datasets[priv_safe_name] = ds
 
+    step("members + private datasets")
     # 6) member agents (unsafe providers, partitioned with their OWNER) -----
     # parent = the OWNING member: anything an agent ingests into its own
     # scratch datasets is inherited downward by that member only.
@@ -244,6 +257,7 @@ async def main(reset_keys: bool = False) -> int:
         agent_users[agent_email] = user
         print(f"  ensured agent provider {agent_email} (owner {owner_email})")
 
+    step("agent providers")
     # 6b) owner-private grants: each agent gets rw on ITS OWNER's private
     #     dataset — DIRECT grants (roles cannot express per-owner datasets).
     #     The negative space (no other member's private tier, no team) is
@@ -254,6 +268,7 @@ async def main(reset_keys: bool = False) -> int:
             await give_permission_on_dataset(agent_users[agent_email], private_datasets[priv_name].id, perm)
         print(f"  granted [read, write] on '{priv_name}' to agent {agent_email}")
 
+    step("agent owner-private grants")
     # 6c) safe agents (ZDR providers, partitioned with their OWNER, + team tier)
     safe_agent_users: dict[str, object] = {}
     for safe_email, owner_email in tiers.SAFE_AGENT_OWNER.items():
@@ -279,6 +294,7 @@ async def main(reset_keys: bool = False) -> int:
             )
         print(f"  ensured safe provider {safe_email} (owner {owner_email}); granted rw on owner's private + private-safe")
 
+    step("safe agents + grants")
     # 7) ACL matrix — granted to ROLES, never to the tenant -----------------
     for role_name, dataset_perms in tiers.ROLE_MATRIX.items():
         role = roles[role_name]
@@ -287,12 +303,14 @@ async def main(reset_keys: bool = False) -> int:
                 await give_permission_on_dataset(role, datasets[ds_name].id, perm)
         print(f"  granted {dataset_perms} on role '{role_name}'")
 
+    step("ACL matrix")
     # 8) seed tier content (ingest only — no cognify, no LLM needed) --------
     for ds_name, text in SEED_TEXT.items():
         ds = await get_authorized_dataset_by_name(ds_name, admin, tiers.READ)
         existing = await cognee.add(text, dataset_name=ds_name, user=admin)
         print(f"  seeded '{ds_name}' (ingest-only, no graph extraction)")
 
+    step("seed content")
     # 9) API keys ------------------------------------------------------------
     print("  API keys:")
     for email, user in {**agent_users, **safe_agent_users, **member_users, tiers.ADMIN_EMAIL: admin}.items():
@@ -310,7 +328,9 @@ async def main(reset_keys: bool = False) -> int:
         cred_path.chmod(stat.S_IRUSR | stat.S_IWUSR)
         print(f"    {email}: minted key {raw[:8]}**** -> credentials/{email}.json")
 
+    step("api keys")
     print("== bootstrap complete ==")
+    step("complete")
     return 0
 
 

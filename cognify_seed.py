@@ -12,6 +12,9 @@ from __future__ import annotations
 
 import json
 import sys
+import time
+import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import httpx
@@ -37,6 +40,9 @@ def admin_client() -> httpx.Client:
 
 
 def main() -> int:
+    run_id = uuid.uuid4().hex[:8]
+    log_path = Path(__file__).parent / "data" / "cognify.log"
+    print(f"cognify run={run_id}")
     datasets = {d["name"]: d["id"] for d in admin_client().get("/api/v1/datasets").json()}
     ok = True
     for name in DATASETS:
@@ -45,11 +51,19 @@ def main() -> int:
             ok = False
             continue
         print(f"cognifying '{name}' (LLM extraction — may take a while on CPU)...")
+        t0 = time.monotonic()
         r = admin_client().post(
             "/api/v1/cognify",
             json={"dataset_ids": [str(datasets[name])]},
         )
-        print(f"  cognify '{name}': HTTP {r.status_code}")
+        elapsed = time.monotonic() - t0
+        print(f"  cognify '{name}': HTTP {r.status_code} in {elapsed:.1f}s")
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a") as f:
+            f.write(
+                f"{datetime.now(timezone.utc).isoformat()} run={run_id} "
+                f"dataset={name} http={r.status_code} elapsed_s={elapsed:.1f}\n"
+            )
         if r.status_code not in (200, 202):
             print(f"  body: {r.text[:300]}")
             ok = False
