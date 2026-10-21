@@ -397,12 +397,13 @@ async def main(reset_keys: bool = False, reconcile_dry_run: bool = False) -> int
             pass
         user = await get_user(user.id)
         safe_agent_users[safe_email] = user
-        for perm in (tiers.READ, tiers.WRITE):
+        for perm in SAFE_OWNER_PRIVATE_PERMS:
             await give_permission_on_dataset(user, private_datasets[tiers.private_dataset_name(owner_email)].id, perm)
+        for perm in (tiers.READ, tiers.WRITE):
             await give_permission_on_dataset(
                 user, private_safe_datasets[tiers.private_safe_dataset_name(owner_email)].id, perm
             )
-        print(f"  ensured safe provider {safe_email} (owner {owner_email}); granted rw on owner's private + private-safe")
+        print(f"  ensured safe provider {safe_email} (owner {owner_email}); granted read on owner's private + rw on private-safe")
 
     step("safe agents + grants")
     # 7) ACL matrix — granted to ROLES, never to the tenant -----------------
